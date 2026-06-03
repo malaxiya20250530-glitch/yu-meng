@@ -3,9 +3,9 @@ package com.yumeng.app;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -17,11 +17,11 @@ import java.util.concurrent.Executors;
 
 /**
  * 语梦主界面
- * Live2D 模型展示 + Operit AI 对话引擎 + 情感联动
+ * AI 对话引擎 + 情感联动（Live2D 待集成）
  */
 public class MainActivity extends AppCompatActivity {
 
-    private Live2DView live2dView;
+    private TextView headerView;
     private RecyclerView chatArea;
     private EditText inputText;
     private Button sendBtn;
@@ -38,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         // 初始化视图
-        live2dView = findViewById(R.id.live2dView);
+        headerView = findViewById(R.id.headerView);
         chatArea = findViewById(R.id.chatArea);
         inputText = findViewById(R.id.inputText);
         sendBtn = findViewById(R.id.sendBtn);
@@ -54,8 +54,6 @@ public class MainActivity extends AppCompatActivity {
 
         // 欢迎语
         addMessage("语梦", "你好~ 我是语梦 🌙 想聊什么都可以哦", "happy");
-        live2dView.setEmotion("happy");
-        live2dView.triggerRandomMotion();
 
         // 发送按钮
         sendBtn.setOnClickListener(v -> onSendMessage());
@@ -76,11 +74,9 @@ public class MainActivity extends AppCompatActivity {
             String emotion = result[1];
 
             mainHandler.post(() -> {
-                // 显示 AI 回复
-                addMessage("语梦", reply, emotion);
-                // 联动 Live2D 表情
-                live2dView.setEmotion(emotion != null ? emotion : "neutral");
-                live2dView.triggerRandomMotion();
+                // 显示 AI 回复 + 情感提示
+                String label = "语梦" + (emotion != null ? " [" + emotion + "]" : "");
+                addMessage(label, reply, emotion);
             });
         });
     }
