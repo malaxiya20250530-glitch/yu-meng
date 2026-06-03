@@ -33,7 +33,9 @@ jobs:
           ${{ runner.os }}-gradle-
 
     - name: Build Release APK
-      run: ./gradlew assembleRelease
+      uses: gradle/gradle-build-action@v2
+        with:
+          arguments: assembleRelease
 
     - name: Sign APK
       uses: r0adkll/sign-android-release@v1
