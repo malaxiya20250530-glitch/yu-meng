@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.YuMeng" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#6C5CE7</item>
+        <item name="colorPrimaryDark">#4A3FCF</item>
+        <item name="colorAccent">#A29BFE</item>
+        <item name="android:windowBackground">#1A1A2E</item>
+        <item name="android:statusBarColor">#0F0F23</item>
+    </style>
+</resources>

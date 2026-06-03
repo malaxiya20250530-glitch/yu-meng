@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.yumeng.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.yumeng.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile rootProject.file("keystore.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("KEY_ALIAS") ?: ""
+            keyPassword System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // AndroidX
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.android.material:material:1.11.0'
+
+    // Live2D Cubism SDK
+    implementation 'com.live2d.cubism:cubism-core:4.2.0'
+    
+    // Operit AI (本地推理引擎)
+    // 从 https://github.com/AAswordman/Operit 集成
+    implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+    
+    // OkHttp (网络请求)
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    
+    // Gson (JSON解析)
+    implementation 'com.google.code.gson:gson:2.10.1'
+}
