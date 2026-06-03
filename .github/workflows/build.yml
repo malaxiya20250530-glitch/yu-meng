@@ -19,7 +19,12 @@ jobs:
 
     - uses: android-actions/setup-android@v3
 
-    - uses: actions/cache@v4
+    - uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: "8.5"
+
+    - name: Cache Gradle
+      uses: actions/cache@v4
       with:
         path: |
           ~/.gradle/caches
@@ -27,12 +32,11 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
         restore-keys: ${{ runner.os }}-gradle-
 
-    - uses: gradle/gradle-build-action@v2
-      with:
-        gradle-version: "8.5"
-        arguments: assembleRelease
+    - name: Build Release APK
+      run: gradle assembleRelease
 
-    - uses: r0adkll/sign-android-release@v1
+    - name: Sign APK
+      uses: r0adkll/sign-android-release@v1
       id: sign_app
       with:
         releaseDirectory: app/build/outputs/apk/release
@@ -41,7 +45,8 @@ jobs:
         keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
         keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-    - uses: actions/upload-artifact@v4
+    - name: Upload Signed APK
+      uses: actions/upload-artifact@v4
       with:
         name: YuMeng-Live2D-AI
         path: ${{ steps.sign_app.outputs.signedReleaseFile }}
