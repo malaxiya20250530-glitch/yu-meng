@@ -35,11 +35,10 @@ jobs:
     - name: Build Release APK
       run: gradle assembleRelease
 
-    - name: Install Android build-tools 34.0.0
+    - name: Install build-tools 29.0.3 (for signing)
       run: |
         SDKMANAGER=$(find $ANDROID_HOME/cmdline-tools -name sdkmanager -type f 2>/dev/null | head -1)
-        echo "Using sdkmanager: $SDKMANAGER"
-        yes | $SDKMANAGER "build-tools;34.0.0"
+        yes | $SDKMANAGER "build-tools;29.0.3"
 
     - name: Sign APK
       uses: r0adkll/sign-android-release@v1
@@ -50,7 +49,6 @@ jobs:
         alias: ${{ secrets.KEY_ALIAS }}
         keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
         keyPassword: ${{ secrets.KEY_PASSWORD }}
-        buildToolsVersion: "34.0.0"
 
     - name: Upload Signed APK
       uses: actions/upload-artifact@v4
