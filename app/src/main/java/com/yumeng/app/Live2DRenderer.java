@@ -25,20 +25,15 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     private boolean blinking = false;
     private long blinkStart = 0;
 
-    // 着色器
     private int program;
     private int uMVPMatrixHandle, aPositionHandle, aColorHandle;
 
-    // 矩阵
     private final float[] mvpMatrix = new float[16];
     private final float[] projMatrix = new float[16];
     private final float[] viewMatrix = new float[16];
     private final float[] modelMatrix = new float[16];
     private final float[] tempMatrix = new float[16];
 
-    private int surfaceWidth, surfaceHeight;
-
-    // 顶点着色器
     private static final String VERTEX_SHADER =
         "uniform mat4 uMVPMatrix;" +
         "attribute vec4 aPosition;" +
@@ -49,7 +44,6 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         "  vColor = aColor;" +
         "}";
 
-    // 片段着色器
     private static final String FRAGMENT_SHADER =
         "precision mediump float;" +
         "varying vec4 vColor;" +
@@ -57,15 +51,16 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         "  gl_FragColor = vColor;" +
         "}";
 
-    // ========== 颜色常量 ==========
     private static final float[] COLOR_SKIN    = {1.00f, 0.90f, 0.80f, 1.0f};
     private static final float[] COLOR_HAIR    = {0.25f, 0.20f, 0.35f, 1.0f};
     private static final float[] COLOR_EYE     = {0.95f, 0.95f, 0.95f, 1.0f};
     private static final float[] COLOR_PUPIL   = {0.20f, 0.15f, 0.40f, 1.0f};
     private static final float[] COLOR_MOUTH   = {0.80f, 0.40f, 0.40f, 1.0f};
     private static final float[] COLOR_BODY    = {0.35f, 0.30f, 0.55f, 1.0f};
-    private static final float[] COLOR_BLUSH   = {1.00f, 0.60f, 0.60f, 0.3f};
     private static final float[] COLOR_CHEEK   = {1.00f, 0.75f, 0.70f, 0.4f};
+    private static final float[] COLOR_RIBBON  = {0.90f, 0.30f, 0.50f, 1.0f};
+    private static final float[] COLOR_WHITE   = {1.00f, 1.00f, 1.00f, 1.0f};
+    private static final float[] COLOR_DARK    = {0.40f, 0.20f, 0.20f, 1.0f};
 
     public Live2DRenderer() {}
 
@@ -84,8 +79,6 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     @Override
     public void onSurfaceChanged(GL10 gl, int width, int height) {
         GLES20.glViewport(0, 0, width, height);
-        surfaceWidth = width;
-        surfaceHeight = height;
         float ratio = (float) width / height;
         Matrix.orthoM(projMatrix, 0, -ratio, ratio, -1.0f, 1.0f, -1.0f, 1.0f);
         Matrix.setLookAtM(viewMatrix, 0, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f);
@@ -99,23 +92,23 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         long now = System.currentTimeMillis();
         float elapsed = (now - startTime) / 1000f;
 
-        // 呼吸动画
+        // 呼吸
         float breath = 1.0f + (float) Math.sin(elapsed * 2.5) * 0.02f;
 
-        // 眨眼逻辑
+        // 眨眼
         if (!blinking && now > nextBlinkTime) {
             blinking = true;
             blinkStart = now;
         }
-        float blinkFactor = 1.0f;
+        float blinkY = 1.0f;
         if (blinking) {
             long bt = now - blinkStart;
-            if (bt < 80) blinkFactor = 0.1f;
-            else if (bt < 160) blinkFactor = 1.0f;
+            if (bt < 80) blinkY = 0.1f;
+            else if (bt < 160) blinkY = 1.0f;
             else { blinking = false; nextBlinkTime = now + 2000 + random.nextInt(3000); }
         }
 
-        // 点头动画
+        // 点头
         float nodAngle = 0;
         if (motionPlaying) {
             long mt = now - motionStartTime;
@@ -126,93 +119,100 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
             }
         }
 
-        // 构建变换矩阵
         Matrix.setIdentityM(modelMatrix, 0);
         Matrix.translateM(modelMatrix, 0, 0f, -0.05f, 0f);
         Matrix.scaleM(modelMatrix, 0, breath, breath, 1f);
         Matrix.rotateM(modelMatrix, 0, nodAngle, 1f, 0f, 0f);
 
-        // 头部
-        drawCircle(0f, 0.15f, 0.28f, COLOR_HAIR);                    // 头发底层
-        drawCircle(0f, 0.18f, 0.25f, COLOR_SKIN);                     // 脸
-
-        // 腮红
+        // --- 绘制 ---
+        drawCircle(0f, 0.15f, 0.28f, COLOR_HAIR);
+        drawCircle(0f, 0.18f, 0.25f, COLOR_SKIN);
         drawCircle(-0.14f, 0.10f, 0.06f, COLOR_CHEEK);
         drawCircle(0.14f, 0.10f, 0.06f, COLOR_CHEEK);
 
-        // 眼睛
-        float eyeScaleY = blinkFactor;
         float eyeY = 0.22f;
-        drawOval(-0.09f, eyeY, 0.06f, 0.08f * eyeScaleY, COLOR_EYE);   // 左眼白
-        drawOval(0.09f, eyeY, 0.06f, 0.08f * eyeScaleY, COLOR_EYE);    // 右眼白
-        drawOval(-0.09f, eyeY, 0.03f, 0.05f * eyeScaleY, COLOR_PUPIL);  // 左瞳孔
-        drawOval(0.09f, eyeY, 0.03f, 0.05f * eyeScaleY, COLOR_PUPIL);   // 右瞳孔
+        drawOval(-0.09f, eyeY, 0.06f, 0.08f * blinkY, COLOR_EYE);
+        drawOval(0.09f, eyeY, 0.06f, 0.08f * blinkY, COLOR_EYE);
+        drawOval(-0.09f, eyeY, 0.03f, 0.05f * blinkY, COLOR_PUPIL);
+        drawOval(0.09f, eyeY, 0.03f, 0.05f * blinkY, COLOR_PUPIL);
+        drawCircle(-0.10f, eyeY + 0.02f, 0.012f, COLOR_WHITE);
+        drawCircle(0.08f, eyeY + 0.02f, 0.012f, COLOR_WHITE);
 
-        // 瞳孔高光
-        drawCircle(-0.10f, eyeY + 0.02f, 0.012f, new float[]{1,1,1,1});
-        drawCircle(0.08f, eyeY + 0.02f, 0.012f, new float[]{1,1,1,1});
-
-        // 眉毛
         float browY = eyeY + 0.09f;
-        float browAngle = 0;
-        if (currentEmotion.equals("sad")) browAngle = -15f;
-        else if (currentEmotion.equals("angry")) browAngle = 15f;
-        drawLine(-0.12f, browY, -0.04f, browY + browAngle * 0.002f, 0.015f, COLOR_HAIR);
-        drawLine(0.04f, browY + browAngle * 0.002f, 0.12f, browY, 0.015f, COLOR_HAIR);
+        if (currentEmotion.equals("sad")) {
+            drawLine(-0.11f, browY - 0.02f, -0.05f, browY, 0.014f, COLOR_HAIR);
+            drawLine(0.05f, browY, 0.11f, browY - 0.02f, 0.014f, COLOR_HAIR);
+        } else if (currentEmotion.equals("angry")) {
+            drawLine(-0.11f, browY, -0.05f, browY + 0.03f, 0.014f, COLOR_HAIR);
+            drawLine(0.05f, browY + 0.03f, 0.11f, browY, 0.014f, COLOR_HAIR);
+        } else {
+            drawLine(-0.12f, browY, -0.04f, browY, 0.014f, COLOR_HAIR);
+            drawLine(0.04f, browY, 0.12f, browY, 0.014f, COLOR_HAIR);
+        }
 
-        // 嘴巴
-        float mouthY = 0.08f;
         float mouthVal = getMouthValue();
-        drawMouth(0f, mouthY, 0.06f, mouthVal, COLOR_MOUTH);
+        drawMouth(0f, 0.08f, 0.06f, mouthVal, COLOR_MOUTH);
 
-        // 身体
         float bodyTop = -0.15f;
         drawBody(0f, bodyTop, 0.22f, 0.30f, COLOR_BODY);
-        drawCircle(0f, bodyTop + 0.02f, 0.23f, COLOR_BODY); // 衣领
+        drawCircle(0f, bodyTop + 0.02f, 0.23f, COLOR_BODY);
 
-        // 头发刘海
-        drawArc(-0.28f, 0.35f, 0.30f, 0.15f, COLOR_HAIR);
-        drawArc(0.28f, 0.35f, 0.30f, 0.15f, COLOR_HAIR);
+        drawArc(-0.28f, 0.35f, 0.28f, 0.14f, COLOR_HAIR);
+        drawArc(0.28f, 0.35f, 0.28f, 0.14f, COLOR_HAIR);
 
-        // 蝴蝶结/发饰
-        drawCircle(-0.22f, 0.38f, 0.05f, new float[]{0.9f, 0.3f, 0.5f, 1f});
-        drawCircle(0.22f, 0.38f, 0.05f, new float[]{0.9f, 0.3f, 0.5f, 1f});
+        drawCircle(-0.22f, 0.38f, 0.05f, COLOR_RIBBON);
+        drawCircle(0.22f, 0.38f, 0.05f, COLOR_RIBBON);
     }
 
     // =================== 绘制工具 ===================
 
     private void drawCircle(float cx, float cy, float r, float[] color) {
-        int segments = 32;
-        FloatBuffer vertices = ByteBuffer.allocateDirect(segments * 3 * 4)
-            .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vertices.put(cx); vertices.put(cy); vertices.put(0f);
-        for (int i = 0; i <= segments; i++) {
-            double angle = 2.0 * Math.PI * i / segments;
-            vertices.put(cx + (float) Math.cos(angle) * r);
-            vertices.put(cy + (float) Math.sin(angle) * r);
-            vertices.put(0f);
+        int n = 32;
+        int count = n + 2; // center + ring + close
+        FloatBuffer vb = allocFloats(count * 3);
+        vb.put(cx).put(cy).put(0f);
+        for (int i = 0; i <= n; i++) {
+            double a = 2.0 * Math.PI * i / n;
+            vb.put(cx + (float) Math.cos(a) * r);
+            vb.put(cy + (float) Math.sin(a) * r);
+            vb.put(0f);
         }
-        vertices.position(0);
-        drawFan(vertices, segments + 2, color);
+        vb.position(0);
+        drawFan(vb, count, color);
     }
 
     private void drawOval(float cx, float cy, float rx, float ry, float[] color) {
-        int segments = 32;
-        FloatBuffer vertices = ByteBuffer.allocateDirect(segments * 3 * 4)
-            .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vertices.put(cx); vertices.put(cy); vertices.put(0f);
-        for (int i = 0; i <= segments; i++) {
-            double angle = 2.0 * Math.PI * i / segments;
-            vertices.put(cx + (float) Math.cos(angle) * rx);
-            vertices.put(cy + (float) Math.sin(angle) * ry);
-            vertices.put(0f);
+        int n = 32;
+        int count = n + 2;
+        FloatBuffer vb = allocFloats(count * 3);
+        vb.put(cx).put(cy).put(0f);
+        for (int i = 0; i <= n; i++) {
+            double a = 2.0 * Math.PI * i / n;
+            vb.put(cx + (float) Math.cos(a) * rx);
+            vb.put(cy + (float) Math.sin(a) * ry);
+            vb.put(0f);
         }
-        vertices.position(0);
-        drawFan(vertices, segments + 2, color);
+        vb.position(0);
+        drawFan(vb, count, color);
     }
 
-    private void drawFan(FloatBuffer vertices, int count, float[] color) {
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
+    private void drawArc(float cx, float cy, float rx, float ry, float[] color) {
+        int n = 16;
+        int count = n + 2;
+        FloatBuffer vb = allocFloats(count * 3);
+        vb.put(cx).put(cy).put(0f);
+        for (int i = 0; i <= n; i++) {
+            double a = Math.PI * (0.5 + (double) i / n);
+            vb.put(cx + (float) Math.cos(a) * rx);
+            vb.put(cy + (float) Math.sin(a) * ry);
+            vb.put(0f);
+        }
+        vb.position(0);
+        drawFan(vb, count, color);
+    }
+
+    private void drawFan(FloatBuffer vb, int count, float[] color) {
+        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
         GLES20.glEnableVertexAttribArray(aPositionHandle);
         GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
         GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
@@ -224,14 +224,13 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         if (len < 0.001f) return;
         float nx = -dy / len * w, ny = dx / len * w;
-        FloatBuffer vertices = ByteBuffer.allocateDirect(6 * 3 * 4)
-            .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vertices.put(new float[]{
+        FloatBuffer vb = allocFloats(18);
+        vb.put(new float[]{
             x1 + nx, y1 + ny, 0, x1 - nx, y1 - ny, 0, x2 - nx, y2 - ny, 0,
             x1 + nx, y1 + ny, 0, x2 - nx, y2 - ny, 0, x2 + nx, y2 + ny, 0
         });
-        vertices.position(0);
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
+        vb.position(0);
+        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
         GLES20.glEnableVertexAttribArray(aPositionHandle);
         GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
         GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
@@ -240,89 +239,70 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
 
     private void drawMouth(float cx, float cy, float r, float openness, float[] color) {
         if (currentEmotion.equals("happy") || openness > 0.6f) {
-            // 微笑弧线
-            int segs = 20;
-            FloatBuffer vertices = ByteBuffer.allocateDirect(segs * 3 * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-            for (int i = 0; i <= segs; i++) {
-                float t = (float) i / segs;
+            int n = 24;
+            FloatBuffer vb = allocFloats(n * 3);
+            for (int i = 0; i < n; i++) {
+                float t = (float) i / (n - 1);
                 float angle = (float) (Math.PI * (0.15 + t * 0.7));
                 float rr = r * (0.5f + openness * 0.5f);
-                vertices.put(cx + (float) Math.cos(angle) * rr * 1.5f);
-                vertices.put(cy - (float) Math.sin(angle) * rr);
-                vertices.put(0f);
+                vb.put(cx + (float) Math.cos(angle) * rr * 1.5f);
+                vb.put(cy - (float) Math.sin(angle) * rr);
+                vb.put(0f);
             }
-            vertices.position(0);
-            GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
-            GLES20.glEnableVertexAttribArray(aPositionHandle);
-            GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-            GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
+            vb.position(0);
             GLES20.glLineWidth(3f);
-            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, segs + 1);
+            drawStrip(vb, n, color);
         } else if (currentEmotion.equals("sad")) {
-            // 难过弧线（倒弧）
-            int segs = 20;
-            FloatBuffer vertices = ByteBuffer.allocateDirect(segs * 3 * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-            for (int i = 0; i <= segs; i++) {
-                float t = (float) i / segs;
+            int n = 24;
+            FloatBuffer vb = allocFloats(n * 3);
+            for (int i = 0; i < n; i++) {
+                float t = (float) i / (n - 1);
                 float angle = (float) (Math.PI * (1.15 + t * 0.7));
-                vertices.put(cx + (float) Math.cos(angle) * r * 1.3f);
-                vertices.put(cy + 0.04f - (float) Math.sin(angle) * r * 0.6f);
-                vertices.put(0f);
+                vb.put(cx + (float) Math.cos(angle) * r * 1.3f);
+                vb.put(cy + 0.04f - (float) Math.sin(angle) * r * 0.6f);
+                vb.put(0f);
             }
-            vertices.position(0);
-            GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
-            GLES20.glEnableVertexAttribArray(aPositionHandle);
-            GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-            GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
+            vb.position(0);
             GLES20.glLineWidth(3f);
-            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, segs + 1);
+            drawStrip(vb, n, color);
         } else if (currentEmotion.equals("surprised")) {
-            // 惊讶圆嘴
-            drawOval(cx, cy, r * 0.4f, r * 0.8f, new float[]{0.4f, 0.2f, 0.2f, 1f});
+            drawOval(cx, cy, r * 0.4f, r * 0.8f, COLOR_DARK);
         } else {
-            // 中性微张
             drawOval(cx, cy - 0.01f, r * 0.35f, r * openness * 0.5f, color);
         }
     }
 
+    private void drawStrip(FloatBuffer vb, int count, float[] color) {
+        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
+        GLES20.glEnableVertexAttribArray(aPositionHandle);
+        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
+        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
+        GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, count);
+    }
+
     private void drawBody(float cx, float cy, float w, float h, float[] color) {
-        float halfW = w / 2;
-        FloatBuffer vertices = ByteBuffer.allocateDirect(6 * 3 * 4)
-            .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        // 梯形身体
-        float topW = halfW * 0.7f;
-        vertices.put(new float[]{
+        float halfW = w / 2, topW = halfW * 0.7f;
+        FloatBuffer vb = allocFloats(18);
+        vb.put(new float[]{
             cx - topW, cy, 0, cx + topW, cy, 0, cx + halfW, cy - h, 0,
             cx - topW, cy, 0, cx + halfW, cy - h, 0, cx - halfW, cy - h, 0
         });
-        vertices.position(0);
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
+        vb.position(0);
+        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
         GLES20.glEnableVertexAttribArray(aPositionHandle);
         GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
         GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
     }
 
-    private void drawArc(float cx, float cy, float rx, float ry, float[] color) {
-        int segs = 16;
-        FloatBuffer vertices = ByteBuffer.allocateDirect(segs * 3 * 4)
+    // =================== 缓冲区分配 ===================
+
+    private FloatBuffer allocFloats(int count) {
+        return ByteBuffer.allocateDirect(count * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vertices.put(cx); vertices.put(cy); vertices.put(0f);
-        for (int i = 0; i <= segs; i++) {
-            double angle = Math.PI * (0.5 + (double) i / segs);
-            vertices.put(cx + (float) Math.cos(angle) * rx);
-            vertices.put(cy + (float) Math.sin(angle) * ry);
-            vertices.put(0f);
-        }
-        vertices.position(0);
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vertices);
-        GLES20.glEnableVertexAttribArray(aPositionHandle);
-        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, segs + 2);
     }
+
+    // =================== MVP矩阵 ===================
 
     private float[] computeMVPMatrix() {
         Matrix.multiplyMM(tempMatrix, 0, viewMatrix, 0, modelMatrix, 0);
@@ -330,23 +310,23 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         return mvpMatrix;
     }
 
-    // =================== 着色器编译 ===================
+    // =================== 着色器 ===================
 
-    private int createProgram(String vertexSrc, String fragmentSrc) {
-        int vs = loadShader(GLES20.GL_VERTEX_SHADER, vertexSrc);
-        int fs = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSrc);
-        int prog = GLES20.glCreateProgram();
-        GLES20.glAttachShader(prog, vs);
-        GLES20.glAttachShader(prog, fs);
-        GLES20.glLinkProgram(prog);
-        return prog;
+    private int createProgram(String vsSrc, String fsSrc) {
+        int vs = loadShader(GLES20.GL_VERTEX_SHADER, vsSrc);
+        int fs = loadShader(GLES20.GL_FRAGMENT_SHADER, fsSrc);
+        int p = GLES20.glCreateProgram();
+        GLES20.glAttachShader(p, vs);
+        GLES20.glAttachShader(p, fs);
+        GLES20.glLinkProgram(p);
+        return p;
     }
 
     private int loadShader(int type, String src) {
-        int shader = GLES20.glCreateShader(type);
-        GLES20.glShaderSource(shader, src);
-        GLES20.glCompileShader(shader);
-        return shader;
+        int s = GLES20.glCreateShader(type);
+        GLES20.glShaderSource(s, src);
+        GLES20.glCompileShader(s);
+        return s;
     }
 
     // =================== 公共接口 ===================
