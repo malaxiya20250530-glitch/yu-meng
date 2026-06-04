@@ -107,7 +107,7 @@ public class OperitEngine {
     }
 
     /** 同步 LLM 调用 */
-    private String callLLMSync(String input) throws IOException {
+    private String callLLMSync(String input) throws Exception {
         String json = buildChatBody(input);
         Request request = new Request.Builder()
                 .url(apiBaseUrl + "/chat/completions")
