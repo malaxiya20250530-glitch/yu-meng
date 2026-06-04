@@ -5,16 +5,20 @@ import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import com.yumeng.plugin.CalculatorPlugin;
+import com.yumeng.plugin.PluginManager;
+import com.yumeng.plugin.PluginManifest;
+import com.yumeng.plugin.SystemPlugin;
+import com.yumeng.plugin.WeatherPlugin;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 语梦主界面
- * Live2D 模型展示 + Operit AI 对话引擎 + 情感联动
+ * Live2D 渲染 + LLM + 插件路由
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -24,6 +28,7 @@ public class MainActivity extends AppCompatActivity {
     private Button sendBtn;
 
     private OperitEngine aiEngine;
+    private PluginManager pluginManager;
     private ChatAdapter chatAdapter;
     private final List<ChatMessage> messages = new ArrayList<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -34,26 +39,32 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 初始化视图
         live2dView = findViewById(R.id.live2dView);
         chatArea = findViewById(R.id.chatArea);
         inputText = findViewById(R.id.inputText);
         sendBtn = findViewById(R.id.sendBtn);
 
-        // 初始化 AI 引擎（默认连接本地 Ollama，失败自动回退规则引擎）
-        aiEngine = new OperitEngine(this);
+        // 初始化插件系统
+        pluginManager = new PluginManager(this);
+        pluginManager
+            .install(new WeatherPlugin(), PluginManifest.create("weather", "WeatherPlugin").description("天气查询"))
+            .install(new SystemPlugin(), PluginManifest.create("system", "SystemPlugin").description("系统信息/时间"))
+            .install(new CalculatorPlugin(), PluginManifest.create("calculator", "CalculatorPlugin").description("四则运算"));
+
+        // 初始化引擎，注入插件管理器
+        aiEngine = new OperitEngine();
+        aiEngine.setPluginManager(pluginManager);
 
         // 对话列表
         chatAdapter = new ChatAdapter(messages);
         chatArea.setLayoutManager(new LinearLayoutManager(this));
         chatArea.setAdapter(chatAdapter);
 
-        // 欢迎语 + Live2D 联动
-        addMessage("语梦", "你好~ 我是语梦 🌙 LLM已接入，想聊什么都可以哦", "happy");
+        // 欢迎语
+        addMessage("语梦", "你好~ 我是语梦 🌙\nLLM已接入 · 插件系统已就绪\n可以问我天气、时间、计算哦", "happy");
         live2dView.setEmotion("happy");
         live2dView.triggerRandomMotion();
 
-        // 发送按钮
         sendBtn.setOnClickListener(v -> onSendMessage());
     }
 
@@ -62,30 +73,24 @@ public class MainActivity extends AppCompatActivity {
         String text = inputText.getText().toString().trim();
         if (text.isEmpty()) return;
 
-        // 显示用户消息
         addMessage("你", text, null);
         inputText.setText("");
         isWaitingReply = true;
 
-        // 异步 LLM 调用（自动回退规则引擎）
         aiEngine.chatAsync(text, new OperitEngine.ChatCallback() {
             @Override
             public void onReply(String reply, String emotion) {
                 mainHandler.post(() -> {
-                    String label = "语梦";
-                    addMessage(label, reply, emotion);
-                    // 联动 Live2D 表情 + 动作
-                    String em = emotion != null ? emotion : "neutral";
-                    live2dView.setEmotion(em);
+                    addMessage("语梦", reply, emotion);
+                    live2dView.setEmotion(emotion != null ? emotion : "neutral");
                     live2dView.triggerRandomMotion();
                     isWaitingReply = false;
                 });
             }
-
             @Override
             public void onError(String error) {
                 mainHandler.post(() -> {
-                    addMessage("语梦", "唔…网络好像有点问题，等等再试？ 🌸", "sad");
+                    addMessage("语梦", "唔…出错了呢 🌸", "sad");
                     live2dView.setEmotion("sad");
                     isWaitingReply = false;
                 });
