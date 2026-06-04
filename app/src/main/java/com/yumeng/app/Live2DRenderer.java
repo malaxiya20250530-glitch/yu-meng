@@ -1,8 +1,18 @@
 package com.yumeng.app;
 
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RadialGradient;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
-import android.opengl.Matrix;
+import android.opengl.GLUtils;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -11,8 +21,8 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 /**
- * OpenGL 2D 卡通人物渲染器
- * 纯代码绘制：头部、眼睛、嘴巴、身体 + 表情动画
+ * Canvas绘制二次元角色 → OpenGL纹理渲染
+ * 支持表情切换、呼吸、眨眼、点头动画
  */
 public class Live2DRenderer implements GLSurfaceView.Renderer {
 
@@ -24,43 +34,60 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     private long nextBlinkTime = 2000;
     private boolean blinking = false;
     private long blinkStart = 0;
+    private int texId = -1;
+    private Bitmap charBitmap;
+    private Canvas charCanvas;
+    private final int TEX_SIZE = 1024;
 
+    // 纹理四边形
+    private FloatBuffer quadVerts, quadTexCoords;
+
+    private static final float[] QUAD_VERTS = {
+        -1f, -1f, 0f,  1f, -1f, 0f,  -1f,  1f, 0f,
+        -1f,  1f, 0f,  1f, -1f, 0f,   1f,  1f, 0f
+    };
+    private static final float[] QUAD_TEX = {
+        0f, 1f,  1f, 1f,  0f, 0f,
+        0f, 0f,  1f, 1f,  1f, 0f
+    };
+
+    // 着色器
     private int program;
-    private int uMVPMatrixHandle, aPositionHandle, aColorHandle;
-
+    private int uTexHandle, aPosHandle, aTexHandle;
     private final float[] mvpMatrix = new float[16];
-    private final float[] projMatrix = new float[16];
-    private final float[] viewMatrix = new float[16];
-    private final float[] modelMatrix = new float[16];
-    private final float[] tempMatrix = new float[16];
 
-    private static final String VERTEX_SHADER =
+    private static final String VERTEX =
         "uniform mat4 uMVPMatrix;" +
         "attribute vec4 aPosition;" +
-        "attribute vec4 aColor;" +
-        "varying vec4 vColor;" +
+        "attribute vec2 aTexCoord;" +
+        "varying vec2 vTexCoord;" +
         "void main() {" +
         "  gl_Position = uMVPMatrix * aPosition;" +
-        "  vColor = aColor;" +
+        "  vTexCoord = aTexCoord;" +
         "}";
 
-    private static final String FRAGMENT_SHADER =
+    private static final String FRAGMENT =
         "precision mediump float;" +
-        "varying vec4 vColor;" +
+        "varying vec2 vTexCoord;" +
+        "uniform sampler2D uTexture;" +
         "void main() {" +
-        "  gl_FragColor = vColor;" +
+        "  gl_FragColor = texture2D(uTexture, vTexCoord);" +
         "}";
 
-    private static final float[] COLOR_SKIN    = {1.00f, 0.90f, 0.80f, 1.0f};
-    private static final float[] COLOR_HAIR    = {0.25f, 0.20f, 0.35f, 1.0f};
-    private static final float[] COLOR_EYE     = {0.95f, 0.95f, 0.95f, 1.0f};
-    private static final float[] COLOR_PUPIL   = {0.20f, 0.15f, 0.40f, 1.0f};
-    private static final float[] COLOR_MOUTH   = {0.80f, 0.40f, 0.40f, 1.0f};
-    private static final float[] COLOR_BODY    = {0.35f, 0.30f, 0.55f, 1.0f};
-    private static final float[] COLOR_CHEEK   = {1.00f, 0.75f, 0.70f, 0.4f};
-    private static final float[] COLOR_RIBBON  = {0.90f, 0.30f, 0.50f, 1.0f};
-    private static final float[] COLOR_WHITE   = {1.00f, 1.00f, 1.00f, 1.0f};
-    private static final float[] COLOR_DARK    = {0.40f, 0.20f, 0.20f, 1.0f};
+    // 颜色
+    private static final int C_SKIN    = 0xFFFFE8D0;
+    private static final int C_SKIN_S  = 0xFFFFD8C0;
+    private static final int C_HAIR    = 0xFF3A2A5C;
+    private static final int C_HAIR_L  = 0xFF5A4A7C;
+    private static final int C_EYE_W   = 0xFFFFFFFF;
+    private static final int C_EYE_B   = 0xFF2A1A4A;
+    private static final int C_EYE_H   = 0xFF8A6ACA;
+    private static final int C_MOUTH   = 0xFFD86070;
+    private static final int C_BODY    = 0xFF4A3A6C;
+    private static final int C_BLUSH   = 0x60FF9090;
+    private static final int C_RIBBON  = 0xFFF05070;
+    private static final int C_WHITE   = 0xFFFFFFFF;
+    private static final int C_LINE    = 0xFF2A1A3A;
 
     public Live2DRenderer() {}
 
@@ -69,10 +96,27 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         GLES20.glClearColor(0.10f, 0.10f, 0.18f, 1.0f);
         GLES20.glEnable(GLES20.GL_BLEND);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
-        program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
-        uMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
-        aPositionHandle = GLES20.glGetAttribLocation(program, "aPosition");
-        aColorHandle = GLES20.glGetAttribLocation(program, "aColor");
+
+        program = createProgram(VERTEX, FRAGMENT);
+        uTexHandle = GLES20.glGetUniformLocation(program, "uTexture");
+        aPosHandle = GLES20.glGetAttribLocation(program, "aPosition");
+        aTexHandle = GLES20.glGetAttribLocation(program, "aTexCoord");
+
+        quadVerts = makeBuffer(QUAD_VERTS);
+        quadTexCoords = makeBuffer(QUAD_TEX);
+
+        // 创建纹理
+        int[] tex = new int[1];
+        GLES20.glGenTextures(1, tex, 0);
+        texId = tex[0];
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+
+        charBitmap = Bitmap.createBitmap(TEX_SIZE, TEX_SIZE, Bitmap.Config.ARGB_8888);
+        charCanvas = new Canvas(charBitmap);
         startTime = System.currentTimeMillis();
     }
 
@@ -80,244 +124,291 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 gl, int width, int height) {
         GLES20.glViewport(0, 0, width, height);
         float ratio = (float) width / height;
-        Matrix.orthoM(projMatrix, 0, -ratio, ratio, -1.0f, 1.0f, -1.0f, 1.0f);
-        Matrix.setLookAtM(viewMatrix, 0, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f);
+        android.opengl.Matrix.orthoM(mvpMatrix, 0, -ratio, ratio, -1f, 1f, -1f, 1f);
     }
 
     @Override
     public void onDrawFrame(GL10 gl) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-        GLES20.glUseProgram(program);
 
         long now = System.currentTimeMillis();
         float elapsed = (now - startTime) / 1000f;
 
         // 呼吸
-        float breath = 1.0f + (float) Math.sin(elapsed * 2.5) * 0.02f;
+        float breath = 1.0f + (float) Math.sin(elapsed * 2.5) * 0.015f;
 
         // 眨眼
-        if (!blinking && now > nextBlinkTime) {
-            blinking = true;
-            blinkStart = now;
-        }
+        if (!blinking && now > nextBlinkTime) { blinking = true; blinkStart = now; }
         float blinkY = 1.0f;
         if (blinking) {
             long bt = now - blinkStart;
-            if (bt < 80) blinkY = 0.1f;
+            if (bt < 80) blinkY = 0.05f;
             else if (bt < 160) blinkY = 1.0f;
             else { blinking = false; nextBlinkTime = now + 2000 + random.nextInt(3000); }
         }
 
         // 点头
-        float nodAngle = 0;
+        float nodY = 0;
         if (motionPlaying) {
             long mt = now - motionStartTime;
-            if (mt < 3000) {
-                nodAngle = (float) Math.sin(mt * 0.008) * 3.0f * (1.0f - mt / 3000f);
-            } else {
-                motionPlaying = false;
-            }
+            if (mt < 3000) nodY = (float) Math.sin(mt * 0.01) * 15f * (1f - mt / 3000f);
+            else motionPlaying = false;
         }
 
-        Matrix.setIdentityM(modelMatrix, 0);
-        Matrix.translateM(modelMatrix, 0, 0f, -0.05f, 0f);
-        Matrix.scaleM(modelMatrix, 0, breath, breath, 1f);
-        Matrix.rotateM(modelMatrix, 0, nodAngle, 1f, 0f, 0f);
+        // 绘制角色到Bitmap
+        drawCharacter(breath, blinkY, nodY);
 
-        // --- 绘制 ---
-        drawCircle(0f, 0.15f, 0.28f, COLOR_HAIR);
-        drawCircle(0f, 0.18f, 0.25f, COLOR_SKIN);
-        drawCircle(-0.14f, 0.10f, 0.06f, COLOR_CHEEK);
-        drawCircle(0.14f, 0.10f, 0.06f, COLOR_CHEEK);
+        // 上传纹理
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId);
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, charBitmap, 0);
 
-        float eyeY = 0.22f;
-        drawOval(-0.09f, eyeY, 0.06f, 0.08f * blinkY, COLOR_EYE);
-        drawOval(0.09f, eyeY, 0.06f, 0.08f * blinkY, COLOR_EYE);
-        drawOval(-0.09f, eyeY, 0.03f, 0.05f * blinkY, COLOR_PUPIL);
-        drawOval(0.09f, eyeY, 0.03f, 0.05f * blinkY, COLOR_PUPIL);
-        drawCircle(-0.10f, eyeY + 0.02f, 0.012f, COLOR_WHITE);
-        drawCircle(0.08f, eyeY + 0.02f, 0.012f, COLOR_WHITE);
+        // 渲染
+        GLES20.glUseProgram(program);
+        GLES20.glUniform1i(uTexHandle, 0);
+        GLES20.glVertexAttribPointer(aPosHandle, 3, GLES20.GL_FLOAT, false, 0, quadVerts);
+        GLES20.glEnableVertexAttribArray(aPosHandle);
+        GLES20.glVertexAttribPointer(aTexHandle, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords);
+        GLES20.glEnableVertexAttribArray(aTexHandle);
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uMVPMatrix"), 1, false, mvpMatrix, 0);
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
+    }
 
-        float browY = eyeY + 0.09f;
+    // ==================== Canvas 绘制角色 ====================
+
+    private void drawCharacter(float breath, float blink, float nodY) {
+        Canvas c = charCanvas;
+        c.drawColor(0x00000000, android.graphics.PorterDuff.Mode.CLEAR);
+
+        float cx = TEX_SIZE / 2f;
+        float baseY = TEX_SIZE * 0.58f + nodY;
+        float s = breath * TEX_SIZE / 900f;
+
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        // ── 头发后层 ──
+        p.setColor(C_HAIR);
+        c.drawOval(new RectF(cx - 180 * s, baseY - 350 * s, cx + 180 * s, baseY + 20 * s), p);
+        c.drawRoundRect(new RectF(cx - 190 * s, baseY - 300 * s, cx + 190 * s, baseY - 80 * s), 60 * s, 60 * s, p);
+
+        // ── 脖子 ──
+        p.setColor(C_SKIN_S);
+        c.drawRoundRect(new RectF(cx - 35 * s, baseY - 20 * s, cx + 35 * s, baseY + 100 * s), 20 * s, 20 * s, p);
+
+        // ── 脸部 ──
+        p.setShader(new RadialGradient(cx, baseY - 30 * s, 170 * s, C_SKIN, C_SKIN_S, Shader.TileMode.CLAMP));
+        c.drawOval(new RectF(cx - 150 * s, baseY - 300 * s, cx + 150 * s, baseY + 10 * s), p);
+        p.setShader(null);
+
+        // ── 身体 ──
+        p.setColor(C_BODY);
+        Path body = new Path();
+        body.moveTo(cx - 80 * s, baseY - 10 * s);
+        body.lineTo(cx + 80 * s, baseY - 10 * s);
+        body.lineTo(cx + 140 * s, baseY + 400 * s);
+        body.lineTo(cx - 140 * s, baseY + 400 * s);
+        body.close();
+        c.drawPath(body, p);
+
+        // 衣领
+        p.setColor(0xFF5A4A8C);
+        Path collar = new Path();
+        collar.moveTo(cx - 90 * s, baseY - 10 * s);
+        collar.lineTo(cx, baseY + 60 * s);
+        collar.lineTo(cx + 90 * s, baseY - 10 * s);
+        collar.close();
+        c.drawPath(collar, p);
+
+        // ── 蝴蝶结 ──
+        drawRibbon(c, cx, baseY + 20 * s, 50 * s, p);
+
+        // ── 眼睛 ──
+        float eyeY = baseY - 320 * s;
+        drawEye(c, cx - 65 * s, eyeY, 55 * s, blink, p);
+        drawEye(c, cx + 65 * s, eyeY, 55 * s, blink, p);
+
+        // ── 眉毛 ──
+        drawEyebrows(c, cx, eyeY - 55 * s, 75 * s, p);
+
+        // ── 鼻子 ──
+        p.setColor(0x30FFB090);
+        c.drawOval(new RectF(cx - 10 * s, eyeY + 100 * s, cx + 10 * s, eyeY + 115 * s), p);
+
+        // ── 嘴巴 ──
+        drawMouth(c, cx, eyeY + 140 * s, 30 * s, p);
+
+        // ── 腮红 ──
+        p.setColor(C_BLUSH);
+        c.drawOval(new RectF(cx - 110 * s, eyeY + 70 * s, cx - 50 * s, eyeY + 120 * s), p);
+        c.drawOval(new RectF(cx + 50 * s, eyeY + 70 * s, cx + 110 * s, eyeY + 120 * s), p);
+
+        // ── 前发刘海 ──
+        p.setColor(C_HAIR);
+        drawBangs(c, cx, baseY - 310 * s, 170 * s, 140 * s, p);
+        // 侧发
+        drawSideHair(c, cx - 160 * s, baseY - 200 * s, 80 * s, 200 * s, true, p);
+        drawSideHair(c, cx + 160 * s, baseY - 200 * s, 80 * s, 200 * s, false, p);
+
+        // ── 高光 ──
+        p.setColor(0x20FFFFFF);
+        c.drawOval(new RectF(cx - 60 * s, baseY - 310 * s, cx + 60 * s, baseY - 260 * s), p);
+    }
+
+    private void drawEye(Canvas c, float x, float y, float size, float blink, Paint p) {
+        float sy = blink;
+
+        // 眼白
+        p.setColor(C_EYE_W);
+        c.drawOval(new RectF(x - size, y - size * 0.7f * sy, x + size, y + size * 0.7f * sy), p);
+
+        // 上睫毛阴影
+        p.setColor(0x30000000);
+        c.drawOval(new RectF(x - size * 0.95f, y - size * 0.6f * sy, x + size * 0.95f, y - size * 0.2f * sy), p);
+
+        // 虹膜
+        p.setShader(new RadialGradient(x, y, size * 0.55f, C_EYE_B, 0xFF0A0A2A, Shader.TileMode.CLAMP));
+        c.drawOval(new RectF(x - size * 0.5f, y - size * 0.4f * sy, x + size * 0.5f, y + size * 0.4f * sy), p);
+        p.setShader(null);
+
+        // 瞳孔
+        p.setColor(0xFF000000);
+        c.drawOval(new RectF(x - size * 0.22f, y - size * 0.2f * sy, x + size * 0.22f, y + size * 0.2f * sy), p);
+
+        // 高光1
+        p.setColor(C_WHITE);
+        c.drawOval(new RectF(x + size * 0.1f, y - size * 0.35f * sy, x + size * 0.28f, y - size * 0.18f * sy), p);
+        // 高光2
+        c.drawCircle(x - size * 0.15f, y + size * 0.05f * sy, size * 0.08f, p);
+
+        // 上眼线
+        p.setColor(C_LINE);
+        p.setStrokeWidth(size * 0.06f);
+        p.setStyle(Paint.Style.STROKE);
+        Path lid = new Path();
+        lid.moveTo(x - size * 1.05f, y - size * 0.05f);
+        lid.quadTo(x, y - size * 0.85f, x + size * 1.05f, y - size * 0.05f);
+        c.drawPath(lid, p);
+
+        // 睫毛
+        p.setStrokeWidth(size * 0.04f);
+        for (int i = -2; i <= 2; i++) {
+            float lx = x + i * size * 0.3f;
+            float ly = y - size * 0.7f;
+            c.drawLine(lx, ly, lx + i * size * 0.1f, ly - size * 0.2f, p);
+        }
+
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawEyebrows(Canvas c, float cx, float y, float spread, Paint p) {
+        p.setColor(C_HAIR);
+        p.setStrokeWidth(spread * 0.08f);
+        p.setStyle(Paint.Style.STROKE);
+
         if (currentEmotion.equals("sad")) {
-            drawLine(-0.11f, browY - 0.02f, -0.05f, browY, 0.014f, COLOR_HAIR);
-            drawLine(0.05f, browY, 0.11f, browY - 0.02f, 0.014f, COLOR_HAIR);
+            Path lb = new Path(); lb.moveTo(cx - spread, y + spread * 0.15f); lb.quadTo(cx - spread * 0.5f, y, cx - spread * 0.15f, y + spread * 0.1f);
+            Path rb = new Path(); rb.moveTo(cx + spread * 0.15f, y + spread * 0.1f); rb.quadTo(cx + spread * 0.5f, y, cx + spread, y + spread * 0.15f);
+            c.drawPath(lb, p); c.drawPath(rb, p);
         } else if (currentEmotion.equals("angry")) {
-            drawLine(-0.11f, browY, -0.05f, browY + 0.03f, 0.014f, COLOR_HAIR);
-            drawLine(0.05f, browY + 0.03f, 0.11f, browY, 0.014f, COLOR_HAIR);
+            Path lb = new Path(); lb.moveTo(cx - spread, y - spread * 0.15f); lb.quadTo(cx - spread * 0.5f, y + spread * 0.15f, cx - spread * 0.1f, y);
+            Path rb = new Path(); rb.moveTo(cx + spread * 0.1f, y); rb.quadTo(cx + spread * 0.5f, y + spread * 0.15f, cx + spread, y - spread * 0.15f);
+            c.drawPath(lb, p); c.drawPath(rb, p);
         } else {
-            drawLine(-0.12f, browY, -0.04f, browY, 0.014f, COLOR_HAIR);
-            drawLine(0.04f, browY, 0.12f, browY, 0.014f, COLOR_HAIR);
+            Path lb = new Path(); lb.moveTo(cx - spread, y); lb.quadTo(cx - spread * 0.5f, y - spread * 0.08f, cx - spread * 0.15f, y);
+            Path rb = new Path(); rb.moveTo(cx + spread * 0.15f, y); rb.quadTo(cx + spread * 0.5f, y - spread * 0.08f, cx + spread, y);
+            c.drawPath(lb, p); c.drawPath(rb, p);
         }
-
-        float mouthVal = getMouthValue();
-        drawMouth(0f, 0.08f, 0.06f, mouthVal, COLOR_MOUTH);
-
-        float bodyTop = -0.15f;
-        drawBody(0f, bodyTop, 0.22f, 0.30f, COLOR_BODY);
-        drawCircle(0f, bodyTop + 0.02f, 0.23f, COLOR_BODY);
-
-        drawArc(-0.28f, 0.35f, 0.28f, 0.14f, COLOR_HAIR);
-        drawArc(0.28f, 0.35f, 0.28f, 0.14f, COLOR_HAIR);
-
-        drawCircle(-0.22f, 0.38f, 0.05f, COLOR_RIBBON);
-        drawCircle(0.22f, 0.38f, 0.05f, COLOR_RIBBON);
+        p.setStyle(Paint.Style.FILL);
     }
 
-    // =================== 绘制工具 ===================
-
-    private void drawCircle(float cx, float cy, float r, float[] color) {
-        int n = 32;
-        int count = n + 2; // center + ring + close
-        FloatBuffer vb = allocFloats(count * 3);
-        vb.put(cx).put(cy).put(0f);
-        for (int i = 0; i <= n; i++) {
-            double a = 2.0 * Math.PI * i / n;
-            vb.put(cx + (float) Math.cos(a) * r);
-            vb.put(cy + (float) Math.sin(a) * r);
-            vb.put(0f);
-        }
-        vb.position(0);
-        drawFan(vb, count, color);
-    }
-
-    private void drawOval(float cx, float cy, float rx, float ry, float[] color) {
-        int n = 32;
-        int count = n + 2;
-        FloatBuffer vb = allocFloats(count * 3);
-        vb.put(cx).put(cy).put(0f);
-        for (int i = 0; i <= n; i++) {
-            double a = 2.0 * Math.PI * i / n;
-            vb.put(cx + (float) Math.cos(a) * rx);
-            vb.put(cy + (float) Math.sin(a) * ry);
-            vb.put(0f);
-        }
-        vb.position(0);
-        drawFan(vb, count, color);
-    }
-
-    private void drawArc(float cx, float cy, float rx, float ry, float[] color) {
-        int n = 16;
-        int count = n + 2;
-        FloatBuffer vb = allocFloats(count * 3);
-        vb.put(cx).put(cy).put(0f);
-        for (int i = 0; i <= n; i++) {
-            double a = Math.PI * (0.5 + (double) i / n);
-            vb.put(cx + (float) Math.cos(a) * rx);
-            vb.put(cy + (float) Math.sin(a) * ry);
-            vb.put(0f);
-        }
-        vb.position(0);
-        drawFan(vb, count, color);
-    }
-
-    private void drawFan(FloatBuffer vb, int count, float[] color) {
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
-        GLES20.glEnableVertexAttribArray(aPositionHandle);
-        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, count);
-    }
-
-    private void drawLine(float x1, float y1, float x2, float y2, float w, float[] color) {
-        float dx = x2 - x1, dy = y2 - y1;
-        float len = (float) Math.sqrt(dx * dx + dy * dy);
-        if (len < 0.001f) return;
-        float nx = -dy / len * w, ny = dx / len * w;
-        FloatBuffer vb = allocFloats(18);
-        vb.put(new float[]{
-            x1 + nx, y1 + ny, 0, x1 - nx, y1 - ny, 0, x2 - nx, y2 - ny, 0,
-            x1 + nx, y1 + ny, 0, x2 - nx, y2 - ny, 0, x2 + nx, y2 + ny, 0
-        });
-        vb.position(0);
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
-        GLES20.glEnableVertexAttribArray(aPositionHandle);
-        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
-    }
-
-    private void drawMouth(float cx, float cy, float r, float openness, float[] color) {
-        if (currentEmotion.equals("happy") || openness > 0.6f) {
-            int n = 24;
-            FloatBuffer vb = allocFloats(n * 3);
-            for (int i = 0; i < n; i++) {
-                float t = (float) i / (n - 1);
-                float angle = (float) (Math.PI * (0.15 + t * 0.7));
-                float rr = r * (0.5f + openness * 0.5f);
-                vb.put(cx + (float) Math.cos(angle) * rr * 1.5f);
-                vb.put(cy - (float) Math.sin(angle) * rr);
-                vb.put(0f);
-            }
-            vb.position(0);
-            GLES20.glLineWidth(3f);
-            drawStrip(vb, n, color);
+    private void drawMouth(Canvas c, float x, float y, float size, Paint p) {
+        if (currentEmotion.equals("happy")) {
+            p.setColor(C_MOUTH);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(size * 0.15f);
+            Path mouth = new Path();
+            mouth.moveTo(x - size, y);
+            mouth.quadTo(x, y + size * 0.8f, x + size, y);
+            c.drawPath(mouth, p);
+            p.setStyle(Paint.Style.FILL);
         } else if (currentEmotion.equals("sad")) {
-            int n = 24;
-            FloatBuffer vb = allocFloats(n * 3);
-            for (int i = 0; i < n; i++) {
-                float t = (float) i / (n - 1);
-                float angle = (float) (Math.PI * (1.15 + t * 0.7));
-                vb.put(cx + (float) Math.cos(angle) * r * 1.3f);
-                vb.put(cy + 0.04f - (float) Math.sin(angle) * r * 0.6f);
-                vb.put(0f);
-            }
-            vb.position(0);
-            GLES20.glLineWidth(3f);
-            drawStrip(vb, n, color);
+            p.setColor(C_MOUTH);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(size * 0.15f);
+            Path mouth = new Path();
+            mouth.moveTo(x - size, y + size * 0.5f);
+            mouth.quadTo(x, y - size * 0.3f, x + size, y + size * 0.5f);
+            c.drawPath(mouth, p);
+            p.setStyle(Paint.Style.FILL);
         } else if (currentEmotion.equals("surprised")) {
-            drawOval(cx, cy, r * 0.4f, r * 0.8f, COLOR_DARK);
+            p.setColor(0xFF604050);
+            c.drawOval(new RectF(x - size * 0.4f, y, x + size * 0.4f, y + size * 1.2f), p);
         } else {
-            drawOval(cx, cy - 0.01f, r * 0.35f, r * openness * 0.5f, color);
+            p.setColor(C_MOUTH);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(size * 0.12f);
+            Path mouth = new Path();
+            mouth.moveTo(x - size * 0.5f, y + size * 0.1f);
+            mouth.quadTo(x, y + size * 0.3f, x + size * 0.5f, y + size * 0.1f);
+            c.drawPath(mouth, p);
+            p.setStyle(Paint.Style.FILL);
         }
     }
 
-    private void drawStrip(FloatBuffer vb, int count, float[] color) {
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
-        GLES20.glEnableVertexAttribArray(aPositionHandle);
-        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
-        GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, count);
+    private void drawBangs(Canvas c, float cx, float top, float width, float height, Paint p) {
+        Path bangs = new Path();
+        bangs.moveTo(cx - width, top + height * 0.3f);
+        bangs.quadTo(cx - width * 0.8f, top - height * 0.1f, cx - width * 0.3f, top);
+        bangs.quadTo(cx, top - height * 0.15f, cx + width * 0.3f, top);
+        bangs.quadTo(cx + width * 0.8f, top - height * 0.1f, cx + width, top + height * 0.3f);
+        bangs.lineTo(cx + width, top + height);
+        bangs.lineTo(cx - width, top + height);
+        bangs.close();
+        c.drawPath(bangs, p);
     }
 
-    private void drawBody(float cx, float cy, float w, float h, float[] color) {
-        float halfW = w / 2, topW = halfW * 0.7f;
-        FloatBuffer vb = allocFloats(18);
-        vb.put(new float[]{
-            cx - topW, cy, 0, cx + topW, cy, 0, cx + halfW, cy - h, 0,
-            cx - topW, cy, 0, cx + halfW, cy - h, 0, cx - halfW, cy - h, 0
-        });
-        vb.position(0);
-        GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false, 0, vb);
-        GLES20.glEnableVertexAttribArray(aPositionHandle);
-        GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, computeMVPMatrix(), 0);
-        GLES20.glVertexAttrib4fv(aColorHandle, color, 0);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
+    private void drawSideHair(Canvas c, float x, float y, float w, float h, boolean left, Paint p) {
+        Path hair = new Path();
+        hair.moveTo(x, y);
+        hair.quadTo(x + (left ? -w * 0.3f : w * 0.3f), y + h * 0.5f, x + (left ? -w * 0.1f : w * 0.1f), y + h);
+        hair.lineTo(x + (left ? -w * 0.5f : w * 0.5f), y + h);
+        hair.lineTo(x + (left ? -w * 0.5f : w * 0.5f), y);
+        hair.close();
+        c.drawPath(hair, p);
     }
 
-    // =================== 缓冲区分配 ===================
+    private void drawRibbon(Canvas c, float x, float y, float s, Paint p) {
+        // 中心结
+        p.setColor(C_RIBBON);
+        c.drawOval(new RectF(x - s * 0.3f, y - s * 0.3f, x + s * 0.3f, y + s * 0.3f), p);
+        // 左翼
+        Path lw = new Path();
+        lw.moveTo(x - s * 0.2f, y);
+        lw.quadTo(x - s * 0.8f, y - s * 0.6f, x - s * 1.2f, y - s * 0.1f);
+        lw.quadTo(x - s * 0.7f, y + s * 0.2f, x - s * 0.2f, y);
+        c.drawPath(lw, p);
+        // 右翼
+        Path rw = new Path();
+        rw.moveTo(x + s * 0.2f, y);
+        rw.quadTo(x + s * 0.8f, y - s * 0.6f, x + s * 1.2f, y - s * 0.1f);
+        rw.quadTo(x + s * 0.7f, y + s * 0.2f, x + s * 0.2f, y);
+        c.drawPath(rw, p);
+    }
 
-    private FloatBuffer allocFloats(int count) {
-        return ByteBuffer.allocateDirect(count * 4)
+    // ==================== 工具 ====================
+
+    private FloatBuffer makeBuffer(float[] data) {
+        FloatBuffer b = ByteBuffer.allocateDirect(data.length * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
+        b.put(data).position(0);
+        return b;
     }
 
-    // =================== MVP矩阵 ===================
-
-    private float[] computeMVPMatrix() {
-        Matrix.multiplyMM(tempMatrix, 0, viewMatrix, 0, modelMatrix, 0);
-        Matrix.multiplyMM(mvpMatrix, 0, projMatrix, 0, tempMatrix, 0);
-        return mvpMatrix;
-    }
-
-    // =================== 着色器 ===================
-
-    private int createProgram(String vsSrc, String fsSrc) {
-        int vs = loadShader(GLES20.GL_VERTEX_SHADER, vsSrc);
-        int fs = loadShader(GLES20.GL_FRAGMENT_SHADER, fsSrc);
+    private int createProgram(String vs, String fs) {
+        int v = loadShader(GLES20.GL_VERTEX_SHADER, vs);
+        int f = loadShader(GLES20.GL_FRAGMENT_SHADER, fs);
         int p = GLES20.glCreateProgram();
-        GLES20.glAttachShader(p, vs);
-        GLES20.glAttachShader(p, fs);
+        GLES20.glAttachShader(p, v);
+        GLES20.glAttachShader(p, f);
         GLES20.glLinkProgram(p);
         return p;
     }
@@ -329,24 +420,12 @@ public class Live2DRenderer implements GLSurfaceView.Renderer {
         return s;
     }
 
-    // =================== 公共接口 ===================
+    // ==================== 公共API ====================
 
-    public void setEmotion(String emotion) {
-        this.currentEmotion = emotion;
-    }
+    public void setEmotion(String emotion) { this.currentEmotion = emotion; }
 
     public void startRandomMotion() {
         this.motionPlaying = true;
         this.motionStartTime = System.currentTimeMillis();
-    }
-
-    private float getMouthValue() {
-        switch (currentEmotion) {
-            case "happy":     return 0.8f;
-            case "sad":       return 0.2f;
-            case "surprised": return 1.0f;
-            case "angry":     return 0.15f;
-            default:          return 0.35f;
-        }
     }
 }
