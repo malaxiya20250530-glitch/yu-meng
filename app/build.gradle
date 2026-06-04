@@ -14,20 +14,12 @@ android {
         versionName "1.0.0"
     }
 
-    signingConfigs {
-        release {
-            storeFile rootProject.file("yumeng.keystore")
-            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "yumeng2026"
-            keyAlias System.getenv("KEY_ALIAS") ?: "yumeng"
-            keyPassword System.getenv("KEY_PASSWORD") ?: "yumeng2026"
-        }
-    }
-
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // 不在此处签名，由 CI 的 r0adkll/sign-android-release 统一签名
+            signingConfig signingConfigs.debug
         }
         debug {
             signingConfig signingConfigs.debug
