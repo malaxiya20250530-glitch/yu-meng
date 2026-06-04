@@ -6,7 +6,7 @@ import android.util.AttributeSet;
 
 /**
  * Live2D 模型渲染控件
- * 集成 Cubism Java SDK 进行 2D 模型渲染与表情控制
+ * 封装 OpenGL SurfaceView + 卡通人物渲染器
  */
 public class Live2DView extends GLSurfaceView {
 
@@ -24,19 +24,19 @@ public class Live2DView extends GLSurfaceView {
 
     private void init() {
         setEGLContextClientVersion(2);
-        renderer = new Live2DRenderer(getContext());
+        renderer = new Live2DRenderer();
         setRenderer(renderer);
         setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
     }
 
-    /** 根据对话情感切换模型表情 */
+    /** 根据对话情感切换表情 */
     public void setEmotion(String emotion) {
         if (renderer != null) {
             renderer.setEmotion(emotion);
         }
     }
 
-    /** 触发随机动作（点头、摇头、眨眼） */
+    /** 触发随机动作（点头） */
     public void triggerRandomMotion() {
         if (renderer != null) {
             renderer.startRandomMotion();
